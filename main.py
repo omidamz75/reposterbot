@@ -3,6 +3,8 @@ import logging
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackContext
+from modules.channels.handlers import get_channel_handlers
+from core.database import create_database
 
 # تنظیم سطح لاگ به WARNING برای کاهش پیام‌های اضافی
 logging.basicConfig(
@@ -24,24 +26,15 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
     try:
-        # لاگ برای شروع فرایند
-        logger.info("Starting the start_command handler")
-        
-        if not update or not update.message:
-            logger.error("Update or message is None")
-            return
-
         user = update.effective_user
-        logger.info(f"Processing start command for user {user.id}")
-
-        # ساخت کیبورد
+        logger.info(f"New user interaction - ID: {user.id}, Username: {user.username}")
+        
         keyboard = [
             ['📊 مدیریت تبلیغات', '📈 مدیریت کانال‌ها'],
             ['⚙️ تنظیمات', '📋 راهنما']
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         
-        # ارسال پیام اصلی
         welcome_text = (
             f"👋 سلام {user.first_name} عزیز!\n\n"
             "🤖 به ربات مدیریت تبلیغات و ریپوست خوش آمدید.\n"
@@ -49,17 +42,17 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         await update.message.reply_text(welcome_text, reply_markup=reply_markup)
-        logger.info("Welcome message sent successfully")
 
     except Exception as e:
-        logger.error(f"Error in start command: {str(e)}", exc_info=True)
-        try:
-            await update.message.reply_text("خطایی رخ داد. لطفا دوباره تلاش کنید.")
-        except:
-            logger.error("Could not send error message to user")
+        logger.error(f"Error in start command: {str(e)}")
+        await update.message.reply_text("متأسفانه مشکلی پیش آمده. لطفاً دوباره تلاش کنید.")
 
 def main():
     try:
+        # Create database tables if they don't exist
+        logger.info("Checking database...")
+        create_database()
+
         token = os.getenv('BOT_TOKEN')
         if not token:
             logger.error("No token found! Make sure you set BOT_TOKEN in .env file")
@@ -71,6 +64,9 @@ def main():
         # اضافه کردن هندلرها
         application.add_handler(CommandHandler("start", start_command))
         application.add_error_handler(error_handler)
+        
+        # Add channel handlers with start_command
+        application.add_handlers(get_channel_handlers(start_command))
         
         logger.info("Starting polling...")
         application.run_polling(allowed_updates=Update.ALL_TYPES)
