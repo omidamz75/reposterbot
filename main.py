@@ -7,6 +7,7 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 from modules.channels.handlers import get_channel_handlers
 from modules.ads.handlers import get_ads_handlers
+from modules.scheduler.handlers import get_scheduler_handlers  # اضافه کردن این خط
 from core.database import create_database
 
 # تنظیم سطح لاگ به WARNING برای کاهش پیام‌های اضافی
@@ -60,7 +61,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع ربات"""
     keyboard = [
         ['📊 مدیریت تبلیغات', '📈 مدیریت کانال‌ها'],
-        ['⚙️ تنظیمات', '📋 راهنما']
+        ['⏰ مدیریت زمان‌بندی'],  # تغییر منو
+        ['📋 راهنما']
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(
@@ -89,6 +91,7 @@ def main():
         application.add_handler(CommandHandler("start", start_command))
         application.add_handlers(get_channel_handlers(start_command))
         application.add_handlers(get_ads_handlers(start_command))
+        application.add_handlers(get_scheduler_handlers(start_command))  # اضافه کردن این خط
         application.add_error_handler(error_handler)
 
         application.run_polling(allowed_updates=Update.ALL_TYPES)
