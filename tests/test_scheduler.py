@@ -216,3 +216,50 @@ async def test_comprehensive_scheduler_workflow(test_db):
     final_schedules = await SchedulerService.get_user_schedules(db=test_db, owner_id=12345)
     assert len(final_schedules) == 2
     assert all(schedule.is_active for schedule in final_schedules)
+
+@pytest.mark.asyncio
+async def test_scheduler_handlers_workflow(test_db):
+    """تست جریان کار هندلرهای زمان‌بندی"""
+    from modules.scheduler.services import SchedulerService
+    from modules.scheduler.handlers import edit_schedule, remove_schedule
+    from datetime import time
+    
+    # 1. ایجاد یک زمان‌بندی اولیه
+    initial_schedule = await SchedulerService.create_schedule(
+        db=test_db,
+        owner_id=12345,
+        interval_minutes=30,
+        start_time=time(9, 0),
+        end_time=time(18, 0)
+    )
+    assert initial_schedule is not None
+    
+    # 2. تست ویرایش زمان‌بندی
+    updated_schedule = await SchedulerService.update_schedule(
+        db=test_db,
+        schedule_id=initial_schedule.id,
+        owner_id=12345,
+        interval_minutes=45,
+        start_time=time(10, 0),
+        end_time=time(19, 0)
+    )
+    assert updated_schedule.interval_minutes == 45
+    assert updated_schedule.start_time == time(10, 0)
+    assert updated_schedule.end_time == time(19, 0)
+    
+    # 3. تست حذف زمان‌بندی
+    success = await SchedulerService.delete_schedule(
+        db=test_db,
+        schedule_id=initial_schedule.id,
+        owner_id=12345
+    )
+    assert success == True
+    
+    # 4. تست عدم امکان ویرایش زمان‌بندی حذف شده
+    deleted_update = await SchedulerService.update_schedule(
+        db=test_db,
+        schedule_id=initial_schedule.id,
+        owner_id=12345,
+        interval_minutes=60
+    )
+    assert deleted_update is None
