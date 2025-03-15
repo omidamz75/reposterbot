@@ -4,9 +4,9 @@ import logging
 import asyncio
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes, CallbackContext
+from telegram.ext import Application, CommandHandler, ContextTypes
 from modules.channels.handlers import get_channel_handlers
-from modules.ads.handlers import get_ads_handlers  # اضافه کردن import جدید
+from modules.ads.handlers import get_ads_handlers
 from core.database import create_database
 
 # تنظیم سطح لاگ به WARNING برای کاهش پیام‌های اضافی
@@ -56,81 +56,47 @@ class SingleInstanceBot:
         except Exception as e:
             logger.error(f"Error removing lockfile: {e}")
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Log Errors caused by Updates."""
-    logger.error(f"Update {update} caused error {context.error}")
-
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a message when the command /start is issued."""
-    try:
-        user = update.effective_user
-        logger.info(f"New user interaction - ID: {user.id}, Username: {user.username}")
-        
-        keyboard = [
-            ['📊 مدیریت تبلیغات', '📈 مدیریت کانال‌ها'],
-            ['⚙️ تنظیمات', '📋 راهنما']
-        ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        
-        # فقط در اولین اجرا پیام خوش‌آمدگویی نمایش داده شود
-        if not context.user_data.get('welcomed'):
-            welcome_text = (
-                f"👋 سلام {user.first_name} عزیز!\n\n"
-                "🤖 به ربات مدیریت تبلیغات و ریپوست خوش آمدید.\n"
-                "📌 لطفاً از منوی زیر گزینه مورد نظر خود را انتخاب کنید."
-            )
-            context.user_data['welcomed'] = True
-            await update.message.reply_text(welcome_text, reply_markup=reply_markup)
-        else:
-            # در دفعات بعدی فقط منو نمایش داده شود
-            await update.message.reply_text("📌 لطفاً از منوی زیر گزینه مورد نظر خود را انتخاب کنید.", 
-                                         reply_markup=reply_markup)
+    """شروع ربات"""
+    keyboard = [
+        ['📊 مدیریت تبلیغات', '📈 مدیریت کانال‌ها'],
+        ['⚙️ تنظیمات', '📋 راهنما']
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    await update.message.reply_text(
+        f"👋 سلام {update.effective_user.first_name} عزیز!\n"
+        "🤖 به ربات مدیریت تبلیغات خوش آمدید.",
+        reply_markup=reply_markup
+    )
 
-    except Exception as e:
-        logger.error(f"Error in start command: {str(e)}")
-        await update.message.reply_text("متأسفانه مشکلی پیش آمده. لطفاً دوباره تلاش کنید.")
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مدیریت خطاها"""
+    logger.error(f"Error: {context.error} in update {update}")
 
 def main():
     try:
-        # Single instance check
-        instance = SingleInstanceBot()
-        if not instance.check_instance():
-            sys.exit(1)
-
-        # Create database tables if they don't exist
-        logger.info("Checking database...")
+        logger.info("Starting bot...")
         create_database()
 
         token = os.getenv('BOT_TOKEN')
         if not token:
-            logger.error("No token found! Make sure you set BOT_TOKEN in .env file")
+            logger.error("No bot token found in .env file!")
             return
 
-        logger.info("Bot is starting...")
         application = Application.builder().token(token).build()
         
         # اضافه کردن هندلرها
         application.add_handler(CommandHandler("start", start_command))
-        application.add_error_handler(error_handler)
-        
-        # Add channel handlers
         application.add_handlers(get_channel_handlers(start_command))
-        
-        # Add advertisement handlers - اضافه کردن هندلرهای تبلیغات
         application.add_handlers(get_ads_handlers(start_command))
-        
-        # Cleanup on shutdown
-        try:
-            application.run_polling(
-                allowed_updates=Update.ALL_TYPES,
-                close_loop=False  # Don't close the event loop on shutdown
-            )
-        finally:
-            instance.cleanup()
-            
+        application.add_error_handler(error_handler)
+
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
     except Exception as e:
-        logger.error(f"Critical error: {str(e)}", exc_info=True)
-        instance.cleanup()
+        logger.error(f"Critical error: {str(e)}")
 
 if __name__ == '__main__':
     main()
