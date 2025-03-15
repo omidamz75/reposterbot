@@ -62,7 +62,11 @@ class AdvertisementService:
     @staticmethod
     async def update_advertisement(db: Session, ad_id: int, owner_id: int, content: str, ad_type: str = None, media_id: str = None):
         """Update existing advertisement"""
+        # اول چک میکنیم که آیا تبلیغ متعلق به این کاربر هست
         ad = await AdvertisementService.get_advertisement_by_id(db, ad_id, owner_id)
+        if not ad or ad.owner_id != owner_id:
+            raise Exception("Unauthorized access to advertisement")
+            
         if ad:
             ad.content = content
             if ad_type:
