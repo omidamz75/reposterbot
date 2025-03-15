@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, or_
+from sqlalchemy.exc import IntegrityError
 from telegram import Bot
 from . import models
 
@@ -58,7 +59,7 @@ class ChannelService:
 
     @staticmethod
     async def get_next_sequence_number(db: Session, owner_id: int) -> int:
-        """Get next sequence number for channel ordering"""
+        """Get next sequence number for ordering"""
         result = db.query(func.max(models.Channel.sequence_number))\
             .filter(models.Channel.owner_id == owner_id)\
             .scalar()
@@ -123,20 +124,34 @@ class ChannelService:
 
     @staticmethod
     async def add_channel(db: Session, channel_id: str, title: str, username: str, owner_id: int):
-        """Add new channel to the end of the list"""
-        if await ChannelService.check_duplicate_channel(db, channel_id, owner_id):
-            raise ValueError("Channel already exists for this user")
+        """افزودن کانال جدید"""
+        # بررسی وجود کانال فعال با همین مشخصات
+        existing = db.query(models.Channel).filter(
+            and_(
+                models.Channel.channel_id == channel_id,
+                models.Channel.owner_id == owner_id,
+                models.Channel.is_active == True
+            )
+        ).first()
 
-        channel = models.Channel(
-            channel_id=channel_id,
-            title=title,
-            username=username,
-            owner_id=owner_id
-        )
-        db.add(channel)
-        db.commit()
-        db.refresh(channel)
-        return channel
+        if existing:
+            raise ValueError(f"Channel {channel_id} already exists for this user")
+
+        try:
+            channel = models.Channel(
+                channel_id=channel_id,
+                title=title,
+                username=username,
+                owner_id=owner_id
+            )
+            db.add(channel)
+            db.commit()
+            db.refresh(channel)
+            return channel
+
+        except Exception as e:
+            db.rollback()
+            raise e
 
     @staticmethod
     async def reorder_channel_codes(db: Session, owner_id: int):
@@ -156,22 +171,24 @@ class ChannelService:
 
     @staticmethod
     async def get_user_channels(db: Session, owner_id: int):
-        """Get user's active channels ordered by creation time"""
+        """دریافت کانال‌های فعال کاربر"""
         return db.query(models.Channel)\
             .filter(
                 models.Channel.owner_id == owner_id,
                 models.Channel.is_active == True
             )\
-            .order_by(models.Channel.channel_id.asc())\
+            .order_by(models.Channel.created_at.desc())\
             .all()
 
     @staticmethod
-    async def remove_channel(db: Session, channel_code: str, owner_id: int):
+    async def remove_channel(db: Session, channel_id: str, owner_id: int):
+        """حذف کانال"""
         channel = db.query(models.Channel).filter(
-            models.Channel.channel_code == channel_code,
+            models.Channel.channel_id == channel_id,
             models.Channel.owner_id == owner_id,
             models.Channel.is_active == True
         ).first()
+
         if channel:
             channel.is_active = False
             db.commit()
@@ -195,25 +212,46 @@ class ChannelService:
 
     @staticmethod
     async def remove_channel_by_number(db: Session, number: int, owner_id: int):
-        """Remove channel by its position in the list (1-based indexing)"""
-        # Get channels sorted by channel_id to ensure consistent ordering
+        """Remove channel by its position in the list"""
         channels = db.query(models.Channel)\
             .filter(
                 models.Channel.owner_id == owner_id,
                 models.Channel.is_active == True
             )\
-            .order_by(models.Channel.channel_id.asc())\
+            .order_by(models.Channel.sequence_number)\
             .all()
-            
-        # Convert from 1-based to 0-based indexing
-        index = number - 1
-        
-        if 0 <= index < len(channels):
-            channel = channels[index]
+
+        if not channels or number < 1 or number > len(channels):
+            return False
+
+        try:
+            channel = channels[number - 1]
             channel.is_active = False
             db.commit()
+            
+            # Reorder remaining channels
+            await ChannelService.reorder_sequence_numbers(db, owner_id)
             return True
-        return False
+            
+        except Exception as e:
+            db.rollback()
+            return False
+
+    @staticmethod
+    async def reorder_sequence_numbers(db: Session, owner_id: int):
+        """Reorder sequence numbers for active channels"""
+        channels = db.query(models.Channel)\
+            .filter(
+                models.Channel.owner_id == owner_id,
+                models.Channel.is_active == True
+            )\
+            .order_by(models.Channel.sequence_number)\
+            .all()
+
+        for i, channel in enumerate(channels, 1):
+            channel.sequence_number = i
+        
+        db.commit()
 
     @staticmethod
     async def check_bot_admin(bot: Bot, channel_id: str):
